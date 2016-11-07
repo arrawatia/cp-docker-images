@@ -14,3 +14,5 @@ In this section, we provide more advanced tutorials for using specific Confluent
    clustered-deployment-ssl
    clustered-deployment-sasl
    connect-avro-jdbc
+   automatic-data-balancing
+   kafka-connect-replicator
