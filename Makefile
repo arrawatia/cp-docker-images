@@ -1,12 +1,16 @@
-DOCKER_VERSION := 1
-CP_VERSION := 3.1.2
-VERSION := ${CP_VERSION}-${DOCKER_VERSION}
+BUILD_NUMBER := 1
+CP_VERSION := 3.2.0-SNAPSHOT
+VERSION := ${CP_VERSION}-${BUILD_NUMBER}
 COMPONENTS := base zookeeper kafka kafka-rest schema-registry kafka-connect-base kafka-connect enterprise-control-center kafkacat enterprise-replicator enterprise-kafka
 COMMIT_ID := $(shell git rev-parse --short HEAD)
 MYSQL_DRIVER_VERSION := 5.1.39
 
+CONFLUENT_DEB_REPO := http://packages.confluent.io
+APT_ALLOW_UNAUTHENTICATED := false
 REPOSITORY := confluentinc
-#	REPOSITORY := <your_personal_repo>
+
+# You can override vars like REPOSITORY in a local.make file
+-include local.make
 
 clean-containers:
 	for container in `docker ps -aq -f label=io.confluent.docker.testing=true` ; do \
@@ -34,12 +38,17 @@ build-debian: debian/base/include/etc/confluent/docker/docker-utils.jar
 	# and then tag the images with REPOSITORY namespace
 	for component in ${COMPONENTS} ; do \
 		echo "\n\nBuilding $${component} \n==========================================\n " ; \
-		docker build --build-arg COMMIT_ID=$${COMMIT_ID} --build-arg BUILD_NUMBER=$${BUILD_NUMBER}  -t confluentinc/cp-$${component}:latest debian/$${component} || exit 1 ; \
+		if [ "$${component}" = "base" ]; then \
+			BUILD_ARGS="--build-arg APT_ALLOW_UNAUTHENTICATED=${APT_ALLOW_UNAUTHENTICATED} --build-arg CONFLUENT_DEB_REPO=${CONFLUENT_DEB_REPO}" ; \
+		else \
+			BUILD_ARGS=""; \
+		fi; \
+		docker build --build-arg COMMIT_ID=${COMMIT_ID} --build-arg BUILD_NUMBER=${BUILD_NUMBER} $${BUILD_ARGS} -t confluentinc/cp-$${component}:latest debian/$${component} || exit 1 ; \
 		docker tag confluentinc/cp-$${component}:latest ${REPOSITORY}/cp-$${component}:latest  || exit 1 ; \
 		docker tag confluentinc/cp-$${component}:latest ${REPOSITORY}/cp-$${component}:${CP_VERSION} || exit 1 ; \
 		docker tag confluentinc/cp-$${component}:latest ${REPOSITORY}/cp-$${component}:${VERSION} || exit 1 ; \
 		docker tag confluentinc/cp-$${component}:latest ${REPOSITORY}/cp-$${component}:${COMMIT_ID} || exit 1 ; \
-  done
+	done
 
 build-test-images:
 	for component in `ls tests/images` ; do \
@@ -49,7 +58,7 @@ build-test-images:
 		docker tag confluentinc/cp-$${component}:latest ${REPOSITORY}/cp-$${component}:${CP_VERSION} || exit 1 ; \
 		docker tag confluentinc/cp-$${component}:latest ${REPOSITORY}/cp-$${component}:${VERSION} || exit 1 ; \
 		docker tag confluentinc/cp-$${component}:latest ${REPOSITORY}/cp-$${component}:${COMMIT_ID} || exit 1 ; \
-  done
+	done
 
 tag-remote:
 ifndef DOCKER_REMOTE_REPOSITORY
@@ -71,10 +80,10 @@ endif
 
 push-public: clean build-debian
 	for component in ${COMPONENTS} ; do \
-        echo "\n Pushing cp-$${component}  \n==========================================\n "; \
-        docker push confluentinc/cp-$${component}:latest; \
-				docker push confluentinc/cp-$${component}:${VERSION}; \
-				docker push confluentinc/cp-$${component}:${CP_VERSION}; \
+		echo "\n Pushing cp-$${component}  \n==========================================\n "; \
+		docker push confluentinc/cp-$${component}:latest || exit 1;; \
+		docker push confluentinc/cp-$${component}:${VERSION} || exit 1;; \
+		docker push confluentinc/cp-$${component}:${CP_VERSION} || exit 1;; \
   done
 
 clean: clean-containers clean-images
@@ -118,6 +127,9 @@ test-kafka-connect: venv clean-containers build-debian build-test-images tests/f
 
 test-enterprise-replicator: venv clean-containers build-debian build-test-images
 	IMAGE_DIR=$(pwd) venv/bin/py.test tests/test_enterprise_replicator.py -v
+
+test-enterprise-kafka: venv clean-containers build-debian build-test-images
+	IMAGE_DIR=$(pwd) venv/bin/py.test tests/test_enterprise_kafka.py -v
 
 test-control-center: venv clean-containers build-debian build-test-images
 	IMAGE_DIR=$(pwd) venv/bin/py.test tests/test_control_center.py -v
